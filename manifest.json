@@ -1,0 +1,7 @@
+{
+  "version": "1.7.3",
+  "url": "https://raw.githubusercontent.com/skinnerbenjamin-hash/architect-updates/main/releases/cut-1.7.3.html",
+  "sha256": "c32ac0ca19a4e0be7f545d447416eea79195aa8cf4be7c655e841614f22935fd",
+  "released": "2026-07-24",
+  "notes": "Custom roll input (width required, length optional). Uses same 2\" side margins as presets. Persists via localStorage."
+}

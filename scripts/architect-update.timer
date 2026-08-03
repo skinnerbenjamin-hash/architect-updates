@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Architect updater daily at 4am (±15 min jitter)
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+RandomizedDelaySec=900
+Persistent=true
+
+[Install]
+WantedBy=timers.target
