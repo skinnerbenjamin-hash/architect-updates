@@ -1,7 +1,7 @@
 {
-  "version": "1.7.3",
-  "url": "https://raw.githubusercontent.com/skinnerbenjamin-hash/architect-updates/main/releases/cut-1.7.3.html",
-  "sha256": "c32ac0ca19a4e0be7f545d447416eea79195aa8cf4be7c655e841614f22935fd",
-  "released": "2026-07-24",
-  "notes": "Custom roll input (width required, length optional). Uses same 2\" side margins as presets. Persists via localStorage."
+  "version": "1.8.0",
+  "url": "https://raw.githubusercontent.com/skinnerbenjamin-hash/architect-updates/main/cut-1.8.0.html",
+  "sha256": "b3f496b8c3111ab7c603c37783d49c4e3a62f7b47489a40a39bede89fd671ad4",
+  "released": "2026-08-07",
+  "notes": "Half-round arch preview fix (was showing upside-down / as bounding box). New Quick Cut shapes: Gothic Arch and Quarter-Round. Clean Up toolbar for Logo/Text: invert, smoothing, despeckle, reset."
 }
