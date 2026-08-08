@@ -1,7 +1,7 @@
 {
-  "version": "1.8.0",
-  "url": "https://raw.githubusercontent.com/skinnerbenjamin-hash/architect-updates/main/cut-1.8.0.html",
-  "sha256": "b3f496b8c3111ab7c603c37783d49c4e3a62f7b47489a40a39bede89fd671ad4",
+  "version": "1.8.1",
+  "url": "https://raw.githubusercontent.com/skinnerbenjamin-hash/architect-updates/main/cut-1.8.1.html",
+  "sha256": "8e9c4d878d982bf048c8b992295e2a673b4c68fefd6497402663bbc0531e7ebb",
   "released": "2026-08-07",
-  "notes": "Half-round arch preview fix (was showing upside-down / as bounding box). New Quick Cut shapes: Gothic Arch and Quarter-Round. Clean Up toolbar for Logo/Text: invert, smoothing, despeckle, reset."
+  "notes": "Add Segmental Arch shape (shallow arch, sidewalls, no point) for transom-style windows. Available in Quick Cut and Job Planner."
 }
