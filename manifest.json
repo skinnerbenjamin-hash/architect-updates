@@ -1,6 +1,6 @@
 {
-  "version": "1.8.2",
-  "url": "https://raw.githubusercontent.com/skinnerbenjamin-hash/architect-updates/main/cut-1.8.2.html",
-  "sha256": "c8bbd9a1350623cb4044ce56c6edde643982ca4aff5d10bc148e255ab095262d",
-  "notes": "v1.8.2: ChatGPT windshield workflow — collapsible prompt card in Text/Logo/Design, aspect-ratio lock toggle for exact-fit dimensions. No shape/cut engine changes."
+  "version": "1.8.1",
+  "url": "https://raw.githubusercontent.com/skinnerbenjamin-hash/architect-updates/main/cut-1.8.1.html",
+  "sha256": "8e9c4d878d982bf048c8b992295e2a673b4c68fefd6497402663bbc0531e7ebb",
+  "notes": "Rollback from 1.8.2 to 1.8.1. cut-1.8.2.html remains in repo for reference but is not installed."
 }
