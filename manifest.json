@@ -1,6 +1,6 @@
 {
-  "version": "1.8.1",
-  "url": "https://raw.githubusercontent.com/skinnerbenjamin-hash/architect-updates/main/cut-1.8.1.html",
-  "sha256": "8e9c4d878d982bf048c8b992295e2a673b4c68fefd6497402663bbc0531e7ebb",
-  "notes": "Rollback from 1.8.2 to 1.8.1. cut-1.8.2.html remains in repo for reference but is not installed."
+  "version": "1.8.3",
+  "url": "https://raw.githubusercontent.com/skinnerbenjamin-hash/architect-updates/main/cut-1.8.3.html",
+  "sha256": "00cc1b4de2ddd46d93db7b121dcd726c4304acbccaaa447e66400fe793ba18dd",
+  "notes": "v1.8.3 (built on 1.8.1): Text/Logo/Design piece size, drag-to-place design on piece, optional piece outline cut. Quote and roll picker use piece size."
 }
