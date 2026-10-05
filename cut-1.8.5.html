@@ -152,6 +152,9 @@
   .le-bar { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
   .le-bar button { background:#1e293b; color:#e2e8f0; border:1px solid #334155; border-radius:8px; padding:8px 10px; font-size:13px; font-weight:600; }
   .le-bar button:disabled { opacity:.4; }
+  .le-bar .le-ang { display:flex; align-items:center; gap:6px; font-size:12px; color:#cbd5e1; background:#1e293b; border:1px solid #334155; border-radius:8px; padding:4px 8px; flex:1 1 220px; }
+  .le-bar .le-ang input[type=range] { flex:1; min-width:80px; }
+  .le-bar .le-ang input[type=number] { width:54px; background:#0f172a; color:#e2e8f0; border:1px solid #334155; border-radius:6px; padding:4px; }
   .le-bar .le-msg { flex-basis:100%; font-size:11px; color:#94a3b8; }
   .canvas-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; font-size:11px; color:#94a3b8; padding:0 2px; }
   .canvas-head .badge { background:#1e293b; border:1px solid #334155; padding:3px 8px; border-radius:20px; color:#cbd5e1; }
@@ -1521,17 +1524,30 @@ const LE = {
     canvas.addEventListener('pointerup', end); canvas.addEventListener('pointercancel', end);
     const bar = document.createElement('div');
     bar.className = 'le-bar';
-    bar.innerHTML = `<button data-a="rot">⟳ Rotate</button><button data-a="copy">Copy</button><button data-a="paste">Paste</button><button data-a="del">Delete</button><button data-a="reset">Reset layout</button><div class="le-msg">Tap a piece to select it. Drag to move.</div>`;
+    bar.innerHTML = `<button data-a="rot">⟳ 90°</button><label class="le-ang">Angle <input type="range" min="-180" max="180" step="1" value="0" data-ang="r"><input type="number" min="-180" max="180" step="1" value="0" data-ang="n">°</label><button data-a="copy">Copy</button><button data-a="paste">Paste</button><button data-a="del">Delete</button><button data-a="reset">Reset layout</button><div class="le-msg">Tap a piece to select it. Drag to move.</div>`;
     canvas.insertAdjacentElement('afterend', bar);
     canvas._leBar = bar;
+    const onAng = e => {
+      const inp = e.target.closest('[data-ang]'); if (!inp) return;
+      const st = LE.state[canvas.id]; const pl = st && st.placements[st.sel];
+      if (!pl) return LE.msg(canvas, 'Select a piece first', true);
+      let v = parseFloat(inp.value); if (!isFinite(v)) return;
+      v = Math.max(-180, Math.min(180, v));
+      const prev = { angle: pl.angle || 0, ax: pl.ax, al: pl.al, w: pl.w, h: pl.h };
+      pl.angle = v; leRefit(pl);
+      if (pl.w > canvas._le.cuttingWidth + 0.0001) { Object.assign(pl, prev); LE.redraw(canvas); return LE.msg(canvas, `At ${v}° it's too wide for a ${canvas._le.rollAcrossIn}" roll`, true); }
+      LE.clamp(canvas, pl); st.edited = true; LE.redraw(canvas);
+    };
+    bar.addEventListener('input', onAng);
     bar.addEventListener('click', e => {
       const b = e.target.closest('button'); if (!b) return;
       const st = LE.state[canvas.id]; if (!st) return;
       const pl = st.placements[st.sel]; const a = b.dataset.a; const g = canvas._le;
       if (a === 'rot') {
         if (!pl) return LE.msg(canvas, 'Select a piece first', true);
-        if (pl.h > g.cuttingWidth + 0.0001) return LE.msg(canvas, `Too long to rotate on a ${g.rollAcrossIn}" roll`, true);
+        if (!pl.angle && pl.h > g.cuttingWidth + 0.0001) return LE.msg(canvas, `Too long to rotate on a ${g.rollAcrossIn}" roll`, true);
         const t = pl.w; pl.w = pl.h; pl.h = t; pl.rotated = !pl.rotated; LE.clamp(canvas, pl);
+        if (pl.angle) { leRefit(pl); LE.clamp(canvas, pl); }
       } else if (a === 'copy') {
         if (!pl) return LE.msg(canvas, 'Select a piece first', true);
         LE.clip = { ...pl }; LE.msg(canvas, 'Copied. Tap Paste to add it.'); LE.updateBar(canvas); return;
@@ -1558,10 +1574,11 @@ const LE = {
     const has = st.sel >= 0 && st.placements[st.sel];
     bar.querySelectorAll('[data-a="rot"],[data-a="copy"],[data-a="del"]').forEach(b => b.disabled = !has);
     bar.querySelector('[data-a="paste"]').disabled = !(LE.clip || has);
+    bar.querySelectorAll('[data-ang]').forEach(i => { i.disabled = !has; if (document.activeElement !== i) i.value = has ? (st.placements[st.sel].angle || 0) : 0; });
     const bad = LE.overlaps(st.placements);
     if (bad.size) LE.msg(canvas, 'Pieces overlap. Move them apart before cutting.', true);
     else if (st.placements.length === 0) LE.msg(canvas, 'No pieces. Tap Reset layout to bring them back.', true);
-    else if (has) { const p = st.placements[st.sel]; LE.msg(canvas, `${p.it.label}: ${p.w}" × ${p.h}" at ${p.ax.toFixed(2)}" across, ${p.al.toFixed(2)}" along`); }
+    else if (has) { const p = st.placements[st.sel]; LE.msg(canvas, `${p.it.label}${p.angle ? ' @ ' + p.angle + '°' : ''}: ${p.w}" × ${p.h}" at ${p.ax.toFixed(2)}" across, ${p.al.toFixed(2)}" along`); }
     else LE.msg(canvas, 'Tap a piece to select it. Drag to move.');
   },
   checkBeforeCut(canvasId) {
@@ -1571,10 +1588,51 @@ const LE = {
     return true;
   }
 };
+// v1.8.5: free-angle rotation. Returns polylines [[a,l],...] for a placement, piece-local inches,
+// with the 90° swap and any free angle applied. Bounding box starts at (0,0).
+function lePieceRaw(pl) {
+  if (pl.it.shape === 'logo') {
+    const g = (typeof getLogoGeom === 'function') ? getLogoGeom() : null;
+    if (!g || !Array.isArray(logoPolygons)) return [];
+    const out = logoPolygons.filter(p => p && p.length > 1).map(p => p.map(([nx, ny]) => [g.offX + nx * g.dW, g.offY + ny * g.dH]));
+    if (g.outline) out.push([[0,0],[0,g.pH],[g.pW,g.pH],[g.pW,0],[0,0]]);
+    return out;
+  }
+  const pts = buildShapePoints(pl.it.shape, pl.it.dims);
+  return pts ? [pts] : [];
+}
+function lePiecePolys(pl) {
+  let polys = lePieceRaw(pl).map(poly => poly.map(([a, l]) => pl.rotated ? [l, a] : [a, l]));
+  const ang = pl.angle || 0;
+  if (!ang || !polys.length) return polys;
+  let xs = [], ys = [];
+  polys.forEach(p => p.forEach(([a, l]) => { xs.push(a); ys.push(l); }));
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+  const r = ang * Math.PI / 180, c = Math.cos(r), sn = Math.sin(r);
+  polys = polys.map(p => p.map(([a, l]) => [cx + (a - cx) * c - (l - cy) * sn, cy + (a - cx) * sn + (l - cy) * c]));
+  xs = []; ys = []; polys.forEach(p => p.forEach(([a, l]) => { xs.push(a); ys.push(l); }));
+  const mx = Math.min(...xs), my = Math.min(...ys);
+  return polys.map(p => p.map(([a, l]) => [a - mx, l - my]));
+}
+// Recompute an angled piece's bounding box, keeping its center in place.
+function leRefit(pl) {
+  const polys = lePiecePolys(pl); if (!polys.length) return;
+  let W = 0, H = 0; polys.forEach(p => p.forEach(([a, l]) => { W = Math.max(W, a); H = Math.max(H, l); }));
+  W = Math.round(W * 100) / 100; H = Math.round(H * 100) / 100;
+  pl.ax += (pl.w - W) / 2; pl.al += (pl.h - H) / 2; pl.w = W; pl.h = H;
+}
+
 // One consolidated HPGL body for placed shape pieces (single IN;SP1; keeps plotter origin stable).
 function hpglFromPlacements(placements) {
   let hpgl = "IN;SP1;", count = 0;
   for (const pl of placements) {
+    if (pl.angle) {
+      for (const poly of lePiecePolys(pl)) poly.forEach(([a, l], i) => {
+        const X = Math.round((l + pl.al) * UPI), Y = Math.round((a + pl.ax) * UPI);
+        hpgl += (i === 0 ? "PU;PA"+X+","+Y+";PD;" : "PA"+X+","+Y+";");
+      });
+      count++; continue;
+    }
     const pts = buildShapePoints(pl.it.shape, pl.it.dims);
     if (!pts) continue;
     let first = true;
@@ -1716,7 +1774,16 @@ function drawLayout(ctx, canvas, chosen, metaId, titleId) {
     // (across, along) is swapped against the bbox (pw, ph). pl.w/pl.h are the
     // POST-rotation across/along on the roll, so we map via the shape's natural bbox.
     const pts = buildShapePoints(pl.it.shape, pl.it.dims);
-    if (pl.it.shape === 'logo' && Array.isArray(logoPolygons) && logoPolygons.length) {
+    if (pl.angle) {
+      // v1.8.5 free-angle piece: draw the exact rotated cut paths (same convention as unangled previews)
+      const isLogo = pl.it.shape === 'logo';
+      ctx.fillStyle = col + '33'; ctx.strokeStyle = col; ctx.lineWidth = isLogo ? 1.4 : 1.8;
+      for (const poly of lePiecePolys(pl)) {
+        ctx.beginPath();
+        poly.forEach(([a, l], i) => { const cx = isLogo ? px + a * s : px + pw - a * s, cy = isLogo ? py + l * s : py + ph - l * s; if (i === 0) ctx.moveTo(cx, cy); else ctx.lineTo(cx, cy); });
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+      }
+    } else if (pl.it.shape === 'logo' && Array.isArray(logoPolygons) && logoPolygons.length) {
       // Render the traced logo polygons inside the bbox.
       // logoPolygons are normalized 0..1 with x = across, y = along of the natural bbox.
       // Logo polygons already come from image-space (y-down), so we DON'T need to
@@ -1849,27 +1916,8 @@ document.getElementById("cut_selected").addEventListener("click", async ()=>{
   }
   if (!LE.checkBeforeCut("preview")) return;
   const _mode = await chooseCutMode(); if (!_mode) return;
-  // Build ONE consolidated HPGL string with all pieces offset to their packed positions.
-  // Sending one IN;SP1; per cut keeps the plotter's origin stable so pieces don't overlap.
-  let hpgl = "IN;SP1;";
-  let count = 0;
-  for (const pl of chosen.packed.placements) {
-    const pts = buildShapePoints(pl.it.shape, pl.it.dims);
-    if (!pts) continue;
-    const trans = pts.map(([a,l]) => pl.rotated ? [l, a] : [a, l]);
-    // Inline polyline body (no IN/SP1/return-home) offset by (across, along)
-    let first = true;
-    for (const [a, l] of trans) {
-      const ax = a + pl.ax;
-      const al = l + pl.al;
-      const X = Math.round(al * UPI);   // along the roll → X
-      const Y = Math.round(ax * UPI);   // across the roll → Y
-      if (first) { hpgl += "PU;PA"+X+","+Y+";PD;"; first = false; }
-      else { hpgl += "PA"+X+","+Y+";"; }
-    }
-    count++;
-  }
-  hpgl += "PU;PA0,0;";
+  // v1.8.5: one consolidated HPGL from the (possibly edited) layout
+  let { hpgl, count } = hpglFromPlacements(chosen.packed.placements);
   hpgl = applyCutMode(hpgl, _mode);
   setJobStatus(`Sending ${count} pieces...`,"busy");
   try {
@@ -2573,6 +2621,13 @@ document.getElementById("logo_cut").addEventListener("click", async () => {
       return (first ? "PU;PA"+X+","+Y+";PD;" : "PA"+X+","+Y+";");
     };
     for (const pl of _lpls) {
+      if (pl.angle) {
+        for (const poly of lePiecePolys(pl)) poly.forEach(([a, l], i) => {
+          const X = Math.round((l + pl.al) * UPI), Y = Math.round((a + pl.ax) * UPI);
+          body += (i === 0 ? "PU;PA"+X+","+Y+";PD;" : "PA"+X+","+Y+";");
+        });
+        continue;
+      }
       for (const poly of logoPolygons) {
         if (poly.length < 2) continue;
         poly.forEach(([nx, ny], i) => { body += emit(pl, g.offX + nx * wIn, g.offY + ny * hIn, i === 0); });
