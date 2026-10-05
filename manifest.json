@@ -1,6 +1,6 @@
 {
-  "version": "1.8.3",
-  "url": "https://raw.githubusercontent.com/skinnerbenjamin-hash/architect-updates/main/cut-1.8.3.html",
-  "sha256": "00cc1b4de2ddd46d93db7b121dcd726c4304acbccaaa447e66400fe793ba18dd",
-  "notes": "v1.8.3 (built on 1.8.1): Text/Logo/Design piece size, drag-to-place design on piece, optional piece outline cut. Quote and roll picker use piece size."
+  "version": "1.8.5",
+  "url": "https://raw.githubusercontent.com/skinnerbenjamin-hash/architect-updates/main/cut-1.8.5.html",
+  "sha256": "dad98e04b3c7dccc05dd7bd2e76e74ccc50f0518e5d348f6f7434652a510eac9",
+  "notes": "v1.8.5 (built on 1.8.4): pull-only cut mode; Quick Cut preview matches plotter orientation; tap-to-select layout editor in Quick Cut, Job Planner, and Text/Logo (drag to move, 90° and free-angle rotate, copy/paste, delete, reset, overlap warning). Cuts follow the edited layout."
 }
