@@ -149,6 +149,10 @@
 
   /* Canvas */
   .canvas-wrap { background:#0f172a; border:1px solid #334155; border-radius:12px; padding:10px; margin-bottom:14px; overflow:hidden; }
+  .le-bar { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .le-bar button { background:#1e293b; color:#e2e8f0; border:1px solid #334155; border-radius:8px; padding:8px 10px; font-size:13px; font-weight:600; }
+  .le-bar button:disabled { opacity:.4; }
+  .le-bar .le-msg { flex-basis:100%; font-size:11px; color:#94a3b8; }
   .canvas-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; font-size:11px; color:#94a3b8; padding:0 2px; }
   .canvas-head .badge { background:#1e293b; border:1px solid #334155; padding:3px 8px; border-radius:20px; color:#cbd5e1; }
   canvas { display:block; width:100%; height:auto; background:#020617; border-radius:8px; }
@@ -917,11 +921,13 @@ document.getElementById("qc_cut").addEventListener("click", async ()=>{
   if (qcShape==="segmental" && (d.h - d.sh) >= d.w/2) { qcSetStatus("Rise too tall for a segmental — use Half-Round Arch instead","err"); return; }
   let pts = buildShapePoints(qcShape, d);
   if (!pts) { qcSetStatus("Could not build shape","err"); return; }
-  // v1.8.5: cut exactly as the preview shows. Only rotate if the preview rotated (piece too wide for roll).
-  const _qpl = window._qcChosen && window._qcChosen.packed && window._qcChosen.packed.placements[0];
-  if (_qpl && _qpl.rotated) pts = pts.map(([a,l]) => [l,a]);
+  // v1.8.5: cut exactly what the layout preview shows (moved / rotated / copied pieces).
+  const _qch = window._qcChosen;
+  if (!LE.checkBeforeCut("qc_preview")) return;
   const _mode = await chooseCutMode(); if (!_mode) return;
-  const hpgl = applyCutMode(polyline(pts), _mode);
+  const hpgl = (_qch && _qch.packed && _qch.packed.placements.length)
+    ? applyCutMode(hpglFromPlacements(_qch.packed.placements).hpgl, _mode)
+    : applyCutMode(polyline(pts), _mode);
   qcSetStatus("Sent - check plotter","ok");
   fetch("http://"+location.hostname+":8100/device/print", {
     method:"POST", mode:"no-cors", headers:{"Content-Type":"text/plain"}, body:hpgl
@@ -1434,7 +1440,157 @@ function computeAndRender() {
   renderJobQuote();
 }
 
+
+// =================== LAYOUT EDITOR (v1.8.5) ===================
+// Tap a piece in any layout preview to select it; drag to move; toolbar to rotate/copy/paste/delete.
+// Edits live on chosen.packed.placements, so every Cut button cuts exactly what the preview shows.
+const LE = {
+  state: {}, clip: null, SNAP: 0.25,
+  sigOf(chosen) {
+    const extra = (chosen.packed.placements.some(p => p.it.shape === 'logo') && typeof getLogoGeom === 'function')
+      ? JSON.stringify(getLogoGeom()) + '|' + (Array.isArray(logoPolygons) ? logoPolygons.length : 0) : '';
+    return chosen.rw + '|' + JSON.stringify(chosen.packed.placements.map(p =>
+      [p.it.windowId, p.it.label, p.it.shape, p.it.dims, p.it.across, p.it.along, p.ax, p.al, p.rotated])) + '|' + extra;
+  },
+  apply(canvas, chosen) {
+    if (!chosen.packed._le) {
+      const sig = LE.sigOf(chosen);
+      let st = LE.state[canvas.id];
+      if (st && st.sig === sig) chosen.packed.placements = st.placements;
+      else { st = LE.state[canvas.id] = { sig, placements: chosen.packed.placements, sel: -1, edited: false }; }
+      chosen.packed._le = true;
+    }
+    LE.recalc(chosen);
+  },
+  recalc(chosen) {
+    let t = 0; for (const p of chosen.packed.placements) t = Math.max(t, p.al + p.h);
+    chosen.packed.totalAlongIn = t;
+  },
+  overlaps(list) {
+    const bad = new Set();
+    for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
+      const a = list[i], b = list[j];
+      if (a.ax < b.ax + b.w - 0.01 && b.ax < a.ax + a.w - 0.01 && a.al < b.al + b.h - 0.01 && b.al < a.al + a.h - 0.01) { bad.add(i); bad.add(j); }
+    }
+    return bad;
+  },
+  redraw(canvas) { const a = canvas._leArgs; if (a) drawLayout(...a); LE.updateBar(canvas); },
+  hit(canvas, cx, cy) {
+    const g = canvas._le, st = LE.state[canvas.id]; if (!g || !st) return -1;
+    for (let i = st.placements.length - 1; i >= 0; i--) {
+      const pl = st.placements[i];
+      const px = g.ox + g.rollWpx - g.rightStripPx - (pl.ax + pl.w) * g.s;
+      const py = g.oy + g.rollHpx - (pl.al + pl.h) * g.s;
+      if (cx >= px - 4 && cx <= px + pl.w * g.s + 4 && cy >= py - 4 && cy <= py + pl.h * g.s + 4) return i;
+    }
+    return -1;
+  },
+  clamp(canvas, pl) {
+    const g = canvas._le;
+    pl.ax = Math.max(0, Math.min(g.cuttingWidth - pl.w, pl.ax));
+    pl.al = Math.max(0, Math.min(g.fullAlongIn - pl.h, pl.al));
+  },
+  snap(v) { return Math.round(v / LE.SNAP) * LE.SNAP; },
+  msg(canvas, t, bad) { const m = canvas._leBar && canvas._leBar.querySelector('.le-msg'); if (m) { m.textContent = t; m.style.color = bad ? '#f87171' : '#94a3b8'; } },
+  attach(canvas) {
+    if (canvas._leAttached) return; canvas._leAttached = true;
+    let drag = null;
+    const pos = e => { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+    canvas.addEventListener('touchstart', e => {
+      const t = e.touches[0], r = canvas.getBoundingClientRect();
+      if (LE.hit(canvas, t.clientX - r.left, t.clientY - r.top) >= 0) e.preventDefault();
+    }, { passive: false });
+    canvas.addEventListener('pointerdown', e => {
+      const [x, y] = pos(e); const st = LE.state[canvas.id]; if (!st) return;
+      const i = LE.hit(canvas, x, y);
+      st.sel = i;
+      if (i >= 0) { const pl = st.placements[i]; drag = { x, y, ax: pl.ax, al: pl.al, moved: false }; canvas.setPointerCapture(e.pointerId); }
+      LE.redraw(canvas);
+    });
+    canvas.addEventListener('pointermove', e => {
+      if (!drag) return; const st = LE.state[canvas.id]; const pl = st.placements[st.sel]; if (!pl) return;
+      const [x, y] = pos(e); const s = canvas._le.s;
+      if (Math.abs(x - drag.x) + Math.abs(y - drag.y) < 3 && !drag.moved) return;
+      drag.moved = true;
+      pl.ax = LE.snap(drag.ax - (x - drag.x) / s);
+      pl.al = LE.snap(drag.al - (y - drag.y) / s);
+      LE.clamp(canvas, pl); st.edited = true;
+      LE.redraw(canvas);
+    });
+    const end = () => { if (drag && drag.moved) LE.redraw(canvas); drag = null; };
+    canvas.addEventListener('pointerup', end); canvas.addEventListener('pointercancel', end);
+    const bar = document.createElement('div');
+    bar.className = 'le-bar';
+    bar.innerHTML = `<button data-a="rot">⟳ Rotate</button><button data-a="copy">Copy</button><button data-a="paste">Paste</button><button data-a="del">Delete</button><button data-a="reset">Reset layout</button><div class="le-msg">Tap a piece to select it. Drag to move.</div>`;
+    canvas.insertAdjacentElement('afterend', bar);
+    canvas._leBar = bar;
+    bar.addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b) return;
+      const st = LE.state[canvas.id]; if (!st) return;
+      const pl = st.placements[st.sel]; const a = b.dataset.a; const g = canvas._le;
+      if (a === 'rot') {
+        if (!pl) return LE.msg(canvas, 'Select a piece first', true);
+        if (pl.h > g.cuttingWidth + 0.0001) return LE.msg(canvas, `Too long to rotate on a ${g.rollAcrossIn}" roll`, true);
+        const t = pl.w; pl.w = pl.h; pl.h = t; pl.rotated = !pl.rotated; LE.clamp(canvas, pl);
+      } else if (a === 'copy') {
+        if (!pl) return LE.msg(canvas, 'Select a piece first', true);
+        LE.clip = { ...pl }; LE.msg(canvas, 'Copied. Tap Paste to add it.'); LE.updateBar(canvas); return;
+      } else if (a === 'paste') {
+        const src = LE.clip || pl; if (!src) return LE.msg(canvas, 'Copy a piece first', true);
+        if (src.w > g.cuttingWidth + 0.0001) return LE.msg(canvas, `Doesn't fit on a ${g.rollAcrossIn}" roll`, true);
+        let end = 0; for (const p of st.placements) end = Math.max(end, p.al + p.h);
+        const np = { ...src, ax: 0, al: st.placements.length ? end + SPACING : 0 };
+        LE.clamp(canvas, np); st.placements.push(np); st.sel = st.placements.length - 1;
+      } else if (a === 'del') {
+        if (!pl) return LE.msg(canvas, 'Select a piece first', true);
+        st.placements.splice(st.sel, 1); st.sel = -1;
+      } else if (a === 'reset') {
+        delete LE.state[canvas.id]; LE.clip = null;
+        const fn = { qc_preview: 'computeAndRenderQC', preview: 'computeAndRender', lg_preview: 'computeAndRenderLG' }[canvas.id];
+        if (fn && typeof window[fn] === 'function') window[fn]();
+        LE.updateBar(canvas); return;
+      }
+      st.edited = true; LE.redraw(canvas);
+    });
+  },
+  updateBar(canvas) {
+    const bar = canvas._leBar, st = LE.state[canvas.id]; if (!bar || !st) return;
+    const has = st.sel >= 0 && st.placements[st.sel];
+    bar.querySelectorAll('[data-a="rot"],[data-a="copy"],[data-a="del"]').forEach(b => b.disabled = !has);
+    bar.querySelector('[data-a="paste"]').disabled = !(LE.clip || has);
+    const bad = LE.overlaps(st.placements);
+    if (bad.size) LE.msg(canvas, 'Pieces overlap. Move them apart before cutting.', true);
+    else if (st.placements.length === 0) LE.msg(canvas, 'No pieces. Tap Reset layout to bring them back.', true);
+    else if (has) { const p = st.placements[st.sel]; LE.msg(canvas, `${p.it.label}: ${p.w}" × ${p.h}" at ${p.ax.toFixed(2)}" across, ${p.al.toFixed(2)}" along`); }
+    else LE.msg(canvas, 'Tap a piece to select it. Drag to move.');
+  },
+  checkBeforeCut(canvasId) {
+    const st = LE.state[canvasId]; if (!st) return true;
+    if (!st.placements.length) { alert('There are no pieces to cut.'); return false; }
+    if (LE.overlaps(st.placements).size) return confirm('Some pieces overlap and will cut into each other. Cut anyway?');
+    return true;
+  }
+};
+// One consolidated HPGL body for placed shape pieces (single IN;SP1; keeps plotter origin stable).
+function hpglFromPlacements(placements) {
+  let hpgl = "IN;SP1;", count = 0;
+  for (const pl of placements) {
+    const pts = buildShapePoints(pl.it.shape, pl.it.dims);
+    if (!pts) continue;
+    let first = true;
+    for (const [a0, l0] of pts) {
+      const [a, l] = pl.rotated ? [l0, a0] : [a0, l0];
+      const X = Math.round((l + pl.al) * UPI), Y = Math.round((a + pl.ax) * UPI);
+      if (first) { hpgl += "PU;PA"+X+","+Y+";PD;"; first = false; } else hpgl += "PA"+X+","+Y+";";
+    }
+    count++;
+  }
+  return { hpgl: hpgl + "PU;PA0,0;", count };
+}
+
 function drawLayout(ctx, canvas, chosen, metaId, titleId) {
+  LE.apply(canvas, chosen); LE.attach(canvas);
+  canvas._leArgs = [ctx, canvas, chosen, metaId, titleId];
   metaId = metaId || 'canvas_meta';
   titleId = titleId || 'canvas_title';
   // ---- Setup: HiDPI scaling done once, properly
@@ -1654,6 +1810,20 @@ function drawLayout(ctx, canvas, chosen, metaId, titleId) {
     }
   }
 
+  // ---- v1.8.5 layout editor: overlap warnings + selection highlight
+  {
+    const st = LE.state[canvas.id];
+    const bad = LE.overlaps(chosen.packed.placements);
+    chosen.packed.placements.forEach((pl, i) => {
+      const px = ox + fit.rollWpx - rightStripPx - (pl.ax + pl.w) * s;
+      const py = oy + fit.rollHpx - (pl.al + pl.h) * s;
+      if (bad.has(i)) { ctx.save(); ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 2; ctx.strokeRect(px+1, py+1, pl.w*s-2, pl.h*s-2); ctx.restore(); }
+      if (st && i === st.sel) { ctx.save(); ctx.setLineDash([5,3]); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.strokeRect(px-2, py-2, pl.w*s+4, pl.h*s+4); ctx.restore(); }
+    });
+    canvas._le = { ox, oy, s, rollWpx: fit.rollWpx, rollHpx: fit.rollHpx, rightStripPx, cuttingWidth, fullAlongIn, rollAcrossIn };
+    LE.updateBar(canvas);
+  }
+
   // ---- Axis label (small, at the edge below the roll).
   ctx.fillStyle = '#64748b';
   ctx.font = '10px -apple-system, system-ui, sans-serif';
@@ -1677,6 +1847,7 @@ document.getElementById("cut_selected").addEventListener("click", async ()=>{
   if (!chosen || !chosen.packed || chosen.packed.placements.length === 0) {
     setJobStatus("Nothing to cut","err"); return;
   }
+  if (!LE.checkBeforeCut("preview")) return;
   const _mode = await chooseCutMode(); if (!_mode) return;
   // Build ONE consolidated HPGL string with all pieces offset to their packed positions.
   // Sending one IN;SP1; per cut keeps the plotter's origin stable so pieces don't overlap.
@@ -2390,6 +2561,29 @@ document.getElementById("logo_cut").addEventListener("click", async () => {
   if (!g) { logoSetStatus("Enter a width in inches","err"); return; }
   if (!g.fits) { logoSetStatus("Design is bigger than the piece","err"); return; }
   const wIn = g.dW, hIn = g.dH;
+  if (!LE.checkBeforeCut("lg_preview")) return;
+  const _lch = window._lgChosen;
+  const _lpls = (_lch && _lch.packed && _lch.packed.placements.length) ? _lch.packed.placements : null;
+  if (_lpls) {
+    // v1.8.5: cut every placed copy at its moved/rotated spot on the roll
+    let body = "IN;SP1;";
+    const emit = (pl, a0, l0, first) => {
+      const [a, l] = pl.rotated ? [l0, a0] : [a0, l0];
+      const X = Math.round((l + pl.al) * UPI), Y = Math.round((a + pl.ax) * UPI);
+      return (first ? "PU;PA"+X+","+Y+";PD;" : "PA"+X+","+Y+";");
+    };
+    for (const pl of _lpls) {
+      for (const poly of logoPolygons) {
+        if (poly.length < 2) continue;
+        poly.forEach(([nx, ny], i) => { body += emit(pl, g.offX + nx * wIn, g.offY + ny * hIn, i === 0); });
+      }
+      if (g.outline) [[0,0],[0,g.pH],[g.pW,g.pH],[g.pW,0],[0,0]].forEach(([a,l], i) => { body += emit(pl, a, l, i === 0); });
+    }
+    const hp = applyCutMode(body + "PU;PA0,0;", _mode);
+    logoSetStatus(`Sent ${_lpls.length} piece${_lpls.length===1?'':'s'} - check plotter`,"ok");
+    try { await fetch("http://"+location.hostname+":8100/device/print", { method:"POST", mode:"no-cors", headers:{"Content-Type":"text/plain"}, body:hp }); } catch(e) {}
+    return;
+  }
 
   // Build HPGL: emit each polygon as its own polyline (pen lifts between)
   // logoPolygons coords are 0..1 (x,y) — we map x→across, y→along (so logo prints upright)
