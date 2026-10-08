@@ -68,17 +68,28 @@ WantedBy=multi-user.target
 UNIT
 
 echo "==> Installing architect-mdns.service (alias: architect.local)"
+sudo tee /usr/local/bin/architect-mdns.sh >/dev/null <<'SH'
+#!/bin/sh
+for i in $(seq 1 30); do
+  IP=$(hostname -I | cut -d' ' -f1)
+  [ -n "$IP" ] && break
+  sleep 2
+done
+[ -z "$IP" ] && { echo "no IP"; exit 1; }
+exec /usr/bin/avahi-publish -a -R architect.local "$IP"
+SH
+sudo chmod +x /usr/local/bin/architect-mdns.sh
 sudo tee /etc/systemd/system/architect-mdns.service >/dev/null <<UNIT
 [Unit]
 Description=Publish architect.local via avahi
-After=avahi-daemon.service
-Wants=avahi-daemon.service
+After=avahi-daemon.service network-online.target
+Wants=avahi-daemon.service network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/avahi-publish -a -R architect.local \$(hostname -I | awk '{print \$1}')
+ExecStart=/usr/local/bin/architect-mdns.sh
 Restart=on-failure
-RestartSec=5
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
@@ -93,7 +104,8 @@ sudo curl -sSL --fail "$REPO_RAW/scripts/architect-update.timer"   -o /etc/syste
 echo "==> Enabling services"
 sudo systemctl daemon-reload
 sudo systemctl enable --now architect-web.service
-sudo systemctl enable --now architect-mdns.service
+sudo systemctl enable architect-mdns.service
+sudo systemctl restart architect-mdns.service
 sudo systemctl enable --now architect-update.timer
 
 echo
