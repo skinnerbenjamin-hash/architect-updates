@@ -1533,11 +1533,6 @@ const LE = {
       if (!pl) return LE.msg(canvas, 'Select a piece first', true);
       let v = parseFloat(inp.value); if (!isFinite(v)) return;
       v = Math.max(-180, Math.min(180, v));
-      if (leIsArt(canvas, pl)) {
-        const prevA = pl.artAngle || 0; pl.artAngle = v;
-        if (!leArtFits(pl)) { pl.artAngle = prevA; LE.redraw(canvas); return LE.msg(canvas, `At ${v}° the design runs past the piece edge. Make the piece bigger.`, true); }
-        st.edited = true; LE.redraw(canvas); return;
-      }
       const prev = { angle: pl.angle || 0, ax: pl.ax, al: pl.al, w: pl.w, h: pl.h };
       pl.angle = v; leRefit(pl);
       if (pl.w > canvas._le.cuttingWidth + 0.0001) { Object.assign(pl, prev); LE.redraw(canvas); return LE.msg(canvas, `At ${v}° it's too wide for a ${canvas._le.rollAcrossIn}" roll`, true); }
@@ -1548,10 +1543,7 @@ const LE = {
       const b = e.target.closest('button'); if (!b) return;
       const st = LE.state[canvas.id]; if (!st) return;
       const pl = st.placements[st.sel]; const a = b.dataset.a; const g = canvas._le;
-      if (a === 'rot' && leIsArt(canvas, pl)) {
-        const prevA = pl.artAngle || 0; let v = prevA + 90; if (v > 180) v -= 360; pl.artAngle = v;
-        if (!leArtFits(pl)) { pl.artAngle = prevA; LE.redraw(canvas); return LE.msg(canvas, 'Turned 90° the design runs past the piece edge. Make the piece bigger.', true); }
-      } else if (a === 'rot') {
+      if (a === 'rot') {
         if (!pl) return LE.msg(canvas, 'Select a piece first', true);
         if (!pl.angle && pl.h > g.cuttingWidth + 0.0001) return LE.msg(canvas, `Too long to rotate on a ${g.rollAcrossIn}" roll`, true);
         const t = pl.w; pl.w = pl.h; pl.h = t; pl.rotated = !pl.rotated; LE.clamp(canvas, pl);
@@ -1559,16 +1551,6 @@ const LE = {
       } else if (a === 'copy') {
         if (!pl) return LE.msg(canvas, 'Select a piece first', true);
         LE.clip = { ...pl }; LE.msg(canvas, 'Copied. Tap Paste to add it.'); LE.updateBar(canvas); return;
-      } else if (canvas.id === 'preview' && (a === 'del' || a === 'paste')) {
-        // v1.8.6: Job Planner delete/paste edit the job itself, then re-pack with no gaps
-        const src = a === 'paste' ? (LE.clip || pl) : pl;
-        if (!src) return LE.msg(canvas, a === 'del' ? 'Select a piece first' : 'Copy a piece first', true);
-        const w = windows.find(x => x.id === src.it.windowId);
-        if (!w) return LE.msg(canvas, 'That window is no longer in the job', true);
-        if (a === 'del') { if (w.qty > 1) w.qty -= 1; else { if (editingWindowId === w.id) cancelEdit(); windows = windows.filter(x => x.id !== w.id); } }
-        else w.qty += 1;
-        delete LE.state[canvas.id];
-        persistScratch(); rerender(); return;
       } else if (a === 'paste') {
         const src = LE.clip || pl; if (!src) return LE.msg(canvas, 'Copy a piece first', true);
         if (src.w > g.cuttingWidth + 0.0001) return LE.msg(canvas, `Doesn't fit on a ${g.rollAcrossIn}" roll`, true);
@@ -1592,11 +1574,11 @@ const LE = {
     const has = st.sel >= 0 && st.placements[st.sel];
     bar.querySelectorAll('[data-a="rot"],[data-a="copy"],[data-a="del"]').forEach(b => b.disabled = !has);
     bar.querySelector('[data-a="paste"]').disabled = !(LE.clip || has);
-    bar.querySelectorAll('[data-ang]').forEach(i => { i.disabled = !has; if (document.activeElement !== i) i.value = has ? ((leIsArt(canvas, st.placements[st.sel]) ? st.placements[st.sel].artAngle : st.placements[st.sel].angle) || 0) : 0; });
+    bar.querySelectorAll('[data-ang]').forEach(i => { i.disabled = !has; if (document.activeElement !== i) i.value = has ? (st.placements[st.sel].angle || 0) : 0; });
     const bad = LE.overlaps(st.placements);
     if (bad.size) LE.msg(canvas, 'Pieces overlap. Move them apart before cutting.', true);
     else if (st.placements.length === 0) LE.msg(canvas, 'No pieces. Tap Reset layout to bring them back.', true);
-    else if (has) { const p = st.placements[st.sel]; LE.msg(canvas, `${p.it.label}${p.artAngle ? ' (design @ ' + p.artAngle + '°)' : ''}${p.angle ? ' @ ' + p.angle + '°' : ''}: ${p.w}" × ${p.h}" at ${p.ax.toFixed(2)}" across, ${p.al.toFixed(2)}" along`); }
+    else if (has) { const p = st.placements[st.sel]; LE.msg(canvas, `${p.it.label}${p.angle ? ' @ ' + p.angle + '°' : ''}: ${p.w}" × ${p.h}" at ${p.ax.toFixed(2)}" across, ${p.al.toFixed(2)}" along`); }
     else LE.msg(canvas, 'Tap a piece to select it. Drag to move.');
   },
   checkBeforeCut(canvasId) {
@@ -1612,28 +1594,13 @@ function lePieceRaw(pl) {
   if (pl.it.shape === 'logo') {
     const g = (typeof getLogoGeom === 'function') ? getLogoGeom() : null;
     if (!g || !Array.isArray(logoPolygons)) return [];
-    let out = logoPolygons.filter(p => p && p.length > 1).map(p => p.map(([nx, ny]) => [g.offX + nx * g.dW, g.offY + ny * g.dH]));
-    const aa = pl.artAngle || 0;
-    if (aa) {
-      // v1.8.6: rotate only the design, around its own center; the piece sheet stays put
-      const cx = g.offX + g.dW / 2, cy = g.offY + g.dH / 2, r = aa * Math.PI / 180, c = Math.cos(r), sn = Math.sin(r);
-      out = out.map(p => p.map(([a, l]) => [cx + (a - cx) * c - (l - cy) * sn, cy + (a - cx) * sn + (l - cy) * c]));
-    }
+    const out = logoPolygons.filter(p => p && p.length > 1).map(p => p.map(([nx, ny]) => [g.offX + nx * g.dW, g.offY + ny * g.dH]));
     if (g.outline) out.push([[0,0],[0,g.pH],[g.pW,g.pH],[g.pW,0],[0,0]]);
     return out;
   }
   const pts = buildShapePoints(pl.it.shape, pl.it.dims);
   return pts ? [pts] : [];
 }
-// v1.8.6: does the rotated design stay inside its piece?
-function leArtFits(pl) {
-  const g = (typeof getLogoGeom === 'function') ? getLogoGeom() : null; if (!g) return true;
-  const polys = lePieceRaw({ ...pl, artAngle: pl.artAngle || 0 });
-  const art = g.outline ? polys.slice(0, -1) : polys;
-  for (const p of art) for (const [a, l] of p) if (a < -0.01 || l < -0.01 || a > g.pW + 0.01 || l > g.pH + 0.01) return false;
-  return true;
-}
-function leIsArt(canvas, pl) { return canvas.id === 'lg_preview' && pl && pl.it.shape === 'logo'; }
 function lePiecePolys(pl) {
   let polys = lePieceRaw(pl).map(poly => poly.map(([a, l]) => pl.rotated ? [l, a] : [a, l]));
   const ang = pl.angle || 0;
@@ -1807,7 +1774,7 @@ function drawLayout(ctx, canvas, chosen, metaId, titleId) {
     // (across, along) is swapped against the bbox (pw, ph). pl.w/pl.h are the
     // POST-rotation across/along on the roll, so we map via the shape's natural bbox.
     const pts = buildShapePoints(pl.it.shape, pl.it.dims);
-    if (pl.angle || pl.artAngle) {
+    if (pl.angle) {
       // v1.8.5 free-angle piece: draw the exact rotated cut paths (same convention as unangled previews)
       const isLogo = pl.it.shape === 'logo';
       ctx.fillStyle = col + '33'; ctx.strokeStyle = col; ctx.lineWidth = isLogo ? 1.4 : 1.8;
@@ -1856,21 +1823,14 @@ function drawLayout(ctx, canvas, chosen, metaId, titleId) {
       ctx.fillStyle = col + '33';
       ctx.beginPath();
       for (let i = 0; i < pts.length; i++) {
-        // Normalized 0..1 in piece-local (across, along) axes
-        let u = (pts[i][0] - minX) / rangeX;   // along the natural across axis
-        let v = (pts[i][1] - minY) / rangeY;   // along the natural along axis
-        // Shape y-axis (along) increases AWAY from the leading edge. On the canvas the
-        // roll is drawn with the leading edge at the BOTTOM, so higher "along" values
-        // map to HIGHER positions on the canvas (smaller canvas y). Flip v so shapes
-        // don't appear upside-down (this is the v1.8.0 fix for the half-round arch
-        // "showing as a square" preview bug — the outline was drawn with the peak at
-        // the bottom of the bbox, which visually looked like just the sidewalls).
-        v = 1 - v;
-        // If rotated, swap u and v so the shape aligns with the rotated bbox
-        if (pl.rotated) { const t = u; u = v; v = t; }
-        // Map to canvas: u maps across the bbox WIDTH-on-canvas, v across HEIGHT-on-canvas.
-        const cx = px + u * pw;
-        const cy = py + v * ph;
+        // v1.8.6: map exactly like the cut does (hpglFromPlacements):
+        //   across = shape x (or y if rotated) -> grows LEFT from the right edge (plotter origin side)
+        //   along  = shape y (or x if rotated) -> grows UP from the bottom (leading edge)
+        // Before v1.8.6 the preview drew shape x growing to the RIGHT, so asymmetric shapes looked mirrored.
+        const un = (pts[i][0] - minX) / rangeX, vn = (pts[i][1] - minY) / rangeY;
+        const ua = pl.rotated ? vn : un, ul = pl.rotated ? un : vn;
+        const cx = px + (1 - ua) * pw;
+        const cy = py + (1 - ul) * ph;
         if (i === 0) ctx.moveTo(cx, cy); else ctx.lineTo(cx, cy);
       }
       ctx.closePath();
@@ -2654,7 +2614,7 @@ document.getElementById("logo_cut").addEventListener("click", async () => {
       return (first ? "PU;PA"+X+","+Y+";PD;" : "PA"+X+","+Y+";");
     };
     for (const pl of _lpls) {
-      if (pl.angle || pl.artAngle) {
+      if (pl.angle) {
         for (const poly of lePiecePolys(pl)) poly.forEach(([a, l], i) => {
           const X = Math.round((l + pl.al) * UPI), Y = Math.round((a + pl.ax) * UPI);
           body += (i === 0 ? "PU;PA"+X+","+Y+";PD;" : "PA"+X+","+Y+";");
