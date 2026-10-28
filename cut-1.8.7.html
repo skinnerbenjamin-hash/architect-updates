@@ -260,6 +260,17 @@
   .sw2 i::after { content:""; position:absolute; width:22px; height:22px; left:3px; top:3px; background:#fff; border-radius:50%; transition:.2s; }
   .sw2 input:checked + i { background:var(--or); }
   .sw2 input:checked + i::after { transform:translateX(20px); }
+
+  /* v1.8.7: visual shape picker in Job Planner */
+  .awshapes { display:grid; grid-template-columns:repeat(5,1fr); gap:6px; }
+  .awshape { background:#141414; border:1.5px solid #2e2e2e; border-radius:10px; padding:8px 2px 6px; display:flex; flex-direction:column; align-items:center; cursor:pointer; min-height:64px; }
+  .awshape svg { width:30px; height:30px; stroke:#a3a3a3; stroke-width:2; fill:none; }
+  .awshape span { font-size:10px; color:#a3a3a3; margin-top:4px; text-align:center; line-height:1.15; }
+  .awshape.on { background:#2a1406; border-color:#ff6a00; box-shadow:0 0 0 1px #ff6a00 inset; }
+  .awshape.on svg { stroke:#ff8a3d; fill:rgba(255,106,0,.18); }
+  .awshape.on span { color:#fff; font-weight:700; }
+  .wicon { width:46px; height:46px; flex:0 0 46px; border-radius:10px; background:#0a0a0a; border:1px solid #2e2e2e; display:flex; align-items:center; justify-content:center; }
+  .wicon svg { width:34px; height:34px; stroke:#ff8a3d; stroke-width:2; fill:rgba(255,106,0,.15); }
 </style>
 </head>
 <body>
@@ -343,7 +354,8 @@
   <div class="inputs">
     <div class="field"><label>Label (optional)</label><input id="aw_label" type="text" placeholder="Kitchen North" /></div>
     <div class="field"><label>Shape</label>
-      <select id="aw_shape">
+      <div class="awshapes" id="aw_shape_tiles"></div>
+      <select id="aw_shape" style="display:none">
         <option value="rect">Rectangle</option>
         <option value="circle">Circle</option>
         <option value="semi">Semicircle</option>
@@ -1259,6 +1271,7 @@ function rerender() {
       const isEditing = editingWindowId === w.id;
       return `<div class="wincard ${w.selected?'sel':''} ${isEditing?'editing':''}" data-id="${w.id}">
         <div class="cb" data-toggle="${w.id}">${w.selected?'✓':''}</div>
+        <div class="wicon" data-edit-icon="${w.id}">${(window.shapeIconSVG?shapeIconSVG(w.shape):'')}</div>
         <div class="info" data-edit="${w.id}">
           <div class="label">${escapeHtml(w.label)}${w.qty>1?` × ${w.qty}`:''}${isEditing?' · editing':''}</div>
           <div class="meta">${shapes[w.shape].name} · ${dimStr}</div>
@@ -3437,5 +3450,34 @@ window.addEventListener("resize", computeAndRender);
 
 <div style="text-align:center;color:#2e2e2e;font-size:10px;margin-top:20px">Architect Print Center · v1.8.7</div>
 
+
+<script>
+// v1.8.7: shape pictures for Job Planner (picker + window list). Icons are taken from the Quick Cut tiles.
+(function(){
+  const sel = document.getElementById("aw_shape"), box = document.getElementById("aw_shape_tiles");
+  if (!sel || !box) return;
+  window.shapeIconSVG = function(shape){
+    const t = document.querySelector('#shapes .shape[data-shape="'+shape+'"] svg');
+    return t ? t.outerHTML : '';
+  };
+  const short = { arch:"Half-Round", eyebrow:"Eyebrow", gothic:"Gothic", segmental:"Segmental", quarter:"Quarter-Round", semi:"Semicircle", trap:"Trapezoid", tri:"Triangle", rect:"Rectangle", circle:"Circle" };
+  box.innerHTML = Array.from(sel.options).map(o =>
+    `<div class="awshape" data-v="${o.value}" title="${o.textContent}">${shapeIconSVG(o.value)}<span>${short[o.value]||o.textContent}</span></div>`).join("");
+  const sync = () => box.querySelectorAll(".awshape").forEach(el => el.classList.toggle("on", el.dataset.v === sel.value));
+  box.addEventListener("click", e => {
+    const t = e.target.closest(".awshape"); if (!t || t.dataset.v === sel.value) return;
+    sel.value = t.dataset.v; sel.dispatchEvent(new Event("change")); sync();
+  });
+  sel.addEventListener("change", sync);
+  setInterval(sync, 400);   // also catches "edit window", which sets the value directly
+  sync();
+  // tapping the picture in the window list opens the window, same as tapping its text
+  document.getElementById("winlist").addEventListener("click", e => {
+    const ic = e.target.closest("[data-edit-icon]"); if (!ic) return;
+    const info = ic.parentElement.querySelector(".info"); if (info) info.click();
+  });
+  if (typeof rerender === "function") rerender();
+})();
+</script>
 </body>
 </html>
