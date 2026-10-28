@@ -1,6 +1,6 @@
 {
-  "version": "1.8.5",
-  "url": "https://raw.githubusercontent.com/skinnerbenjamin-hash/architect-updates/main/cut-1.8.5.html",
-  "sha256": "dad98e04b3c7dccc05dd7bd2e76e74ccc50f0518e5d348f6f7434652a510eac9",
-  "notes": "v1.8.5 (built on 1.8.4): pull-only cut mode; Quick Cut preview matches plotter orientation; tap-to-select layout editor in Quick Cut, Job Planner, and Text/Logo (drag to move, 90° and free-angle rotate, copy/paste, delete, reset, overlap warning). Cuts follow the edited layout."
+  "version": "1.8.7",
+  "url": "https://raw.githubusercontent.com/skinnerbenjamin-hash/architect-updates/main/cut-1.8.7.html",
+  "sha256": "33f773751b67a2f06f675f9bb18b3a3b842d6e9ab4c909c3b3e3d824fb1f7faa",
+  "notes": "v1.8.7 (built on 1.8.6): Scorpion black/white/orange UI, icon tabs, numbered steps, sticky Cut button; piece border cut on Text/Logo is OFF by default (toggle, remembered per device); shape pictures in Job Planner picker and window list. Includes 1.8.6 preview fix (Quick Cut/Job Planner no longer mirrored). Cut output unchanged."
 }
